@@ -1,26 +1,179 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-plum: #24163a;
+  --color-plum-2: #35234f;
+  --color-mist: #edeaf2;
+  --color-paper: #fbfafd;
+  --color-line: #ddd7e7;
+  --color-ink: #24163a;
+  --color-ink-soft: #5e5372;
+  --color-gold: #f0a202;
+  --color-gold-deep: #9a6400;
+  --color-gold-wash: #fdf1d6;
+  --color-iris: #7357c9;
+  --color-iris-wash: #ebe5fa;
+  --color-teal: #127c6b;
+  --color-teal-wash: #dcf1ec;
+  --color-danger: #b4232f;
+
+  --font-display: "Bricolage Grotesque Variable", system-ui, sans-serif;
+  --font-sans: "Atkinson Hyperlegible", system-ui, sans-serif;
+
+  --shadow-ticket: 0 1px 0 #ddd7e7, 0 12px 28px -18px rgb(36 22 58 / 0.35);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--color-mist);
+  color: var(--color-ink);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-gold);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-plum px-5 py-2.5 font-display font-semibold text-paper transition-colors hover:bg-plum-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-gold {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-gold px-5 py-2.5 font-display font-semibold text-plum transition-colors hover:bg-[#ffb31a] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line bg-paper px-5 py-2.5 font-display font-semibold text-ink transition-colors hover:border-ink-soft disabled:opacity-50;
+  }
+
+  .field {
+    @apply flex flex-col gap-1.5;
+  }
+  .field > span {
+    @apply font-display text-sm font-semibold;
+  }
+  .field input,
+  .field textarea,
+  .field select {
+    @apply w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-ink placeholder:text-[#9a92a8] focus:border-plum focus:outline-none;
+  }
+  .field small {
+    @apply text-sm text-ink-soft;
+  }
+}
+
+/* Perforation between ticket body and stub */
+.perf {
+  position: relative;
+  background-image: linear-gradient(var(--color-line) 50%, transparent 50%);
+  background-size: 2px 10px;
+  background-repeat: repeat-y;
+  background-position: center;
+  width: 2px;
+}
+.perf::before,
+.perf::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--color-mist);
+  transform: translateX(-50%);
+}
+.perf::before {
+  top: -11px;
+}
+.perf::after {
+  bottom: -11px;
+}
+
+/* Horizontal variant on narrow cards */
+.perf-h {
+  position: relative;
+  height: 2px;
+  background-image: linear-gradient(90deg, var(--color-line) 50%, transparent 50%);
+  background-size: 10px 2px;
+  background-repeat: repeat-x;
+}
+.perf-h::before,
+.perf-h::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--color-mist);
+  transform: translateY(-50%);
+}
+.perf-h::before {
+  left: -11px;
+}
+.perf-h::after {
+  right: -11px;
+}
+
+@keyframes stamp {
+  0% {
+    transform: scale(1.6) rotate(-14deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(0.94) rotate(-8deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(-8deg);
+  }
+}
+.stamp-in {
+  animation: stamp 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Hero photo: slow drift so the page feels alive without moving content */
+@keyframes drift {
+  from {
+    transform: scale(1.02) translate(0, 0);
+  }
+  to {
+    transform: scale(1.1) translate(-1.5%, -1%);
+  }
+}
+.hero-drift {
+  animation: drift 18s ease-in-out infinite alternate;
+}
+
+/* Ticket on the hero photo lands once, then the stamp hits */
+@keyframes ticket-rise {
+  from {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.ticket-float {
+  animation: ticket-rise 600ms 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.ticket-float .stamp-in {
+  animation-delay: 750ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
