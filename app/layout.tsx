@@ -33,7 +33,7 @@ export default function RootLayout({
             </Suspense>
             <div id="page-scroll" className="min-h-0 flex-1 overflow-y-auto">
               <Mobileheader />
-              <div className="mx-auto w-[85%] max-w-[1550px] lg:py-10 md:py-10 py-0">
+              <div className="mx-auto w-[85%] max-w-[1550px] pb-28 md:py-10">
                 <Suspense fallback={null}>
                   <ScrollReset targetId="page-scroll" />
                   {children}

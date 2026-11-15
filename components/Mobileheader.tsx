@@ -1,15 +1,18 @@
+import Link from "next/link";
 import { Wordmark } from "@/components/Wordmark";
-import { Mark }from "@/components/Mark";
+import { Mark } from "@/components/Mark";
 
-const Mobileheader = () => {
+export default function Mobileheader() {
   return (
-    <div className="mb-6 py-6 border-b border-gray-400/20">
-        <div className="w-[90%] mx-auto flex items-center gap-1">
+    <div className="mb-6 border-b border-gray-400/20 py-5 md:hidden">
+      <Link
+        href="/"
+        aria-label="Workbolt home"
+        className="mx-auto flex w-[90%] items-center gap-1"
+      >
         <Mark size={34} />
-        <Wordmark className="text-2xl lg:text-3xl" />
-        </div>
+        <Wordmark className="text-2xl" />
+      </Link>
     </div>
-  )
+  );
 }
-
-export default Mobileheader

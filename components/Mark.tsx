@@ -1,12 +1,13 @@
 
 export function Mark({ size = 40 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden>
-      <path
-        d="M6 8h28a2 2 0 0 1 2 2v6a4 4 0 0 0 0 8v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6a4 4 0 0 0 0-8v-6a2 2 0 0 1 2-2z"
-        fill="#F0A202"
-      />
-      <path d="M22.5 11 14 22h5.5L17 29l9-11.5h-5.6z" fill="#24163A" />
+    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden>
+      <g fill="#F0A202">
+        <path d="M14 26h44 L50 50 H61 L53 74 H14 a6 6 0 0 1 -6 -6 V32 a6 6 0 0 1 6 -6z" />
+        <g transform="rotate(9 78 50) translate(7 -3)">
+          <path d="M64 26 H86 a6 6 0 0 1 6 6 V68 a6 6 0 0 1 -6 6 H60 L68 50 H57 Z" />
+        </g>
+      </g>
     </svg>
   );
 }
