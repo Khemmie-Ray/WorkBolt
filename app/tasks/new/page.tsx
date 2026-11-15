@@ -1,13 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMe } from "@/components/Identity";
 import { createTask } from "@/lib/store";
 import { CATEGORIES, type Category } from "@/lib/types";
 import { formatNaira, formatSats } from "@/lib/format";
-import { useNairaPerSat } from "@/lib/hooks";
-import { escrowAction, useEscrowConfig } from "@/lib/server/escrow-clients";
+import { useNairaPerSat, useToday } from "@/lib/hooks";
+import { escrowAction, useEscrowConfig } from "@/lib/escrow-client";
 import { bondFor } from "@/lib/escrow";
 
 const PRESETS = [1000, 2000, 5000, 10000];
@@ -22,25 +22,19 @@ export default function PostTask() {
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<Category>("translation");
   const [budget, setBudget] = useState("2000");
-  const [deadline, setDeadline] = useState("");
-  const [today, setToday] = useState("");
+  const today = useToday(); // read in the browser only, so the page can be prerendered
+  const [pickedDeadline, setDeadline] = useState("");
+  const deadline = pickedDeadline || addDays(today, 3);
   const [contact, setContact] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const sats = Number(budget.replace(/[^\d]/g, "")) || 0;
 
-  // Dates are read in the browser only, so the page can be prerendered
-  useEffect(() => {
-    const d = new Date();
-    setToday(d.toISOString().slice(0, 10));
-    d.setDate(d.getDate() + 3);
-    setDeadline(d.toISOString().slice(0, 10));
-  }, []);
-
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!me) return askToJoin();
+    if (!escrow) return setError("Still loading. Try again in a second.");
     if (title.trim().length < 6)
       return setError("Give the task a title of at least a few words.");
     if (description.trim().length < 20)
@@ -65,15 +59,11 @@ export default function PostTask() {
           deadline,
           contact: contact.trim(),
         },
-        me,
-        escrow?.enabled ? "awaiting" : "none",
+        escrow.enabled,
       );
-      if (escrow?.enabled) {
+      if (escrow.enabled) {
         // Create the commitment invoice now; if this fails the task page offers a retry
-        await escrowAction(t.id, "create", {
-          budget_sats: sats,
-          title: t.title,
-        }).catch(() => null);
+        await escrowAction(t.id, "create").catch(() => null);
       }
       router.push(`/tasks/${t.id}`);
     } catch (err) {
@@ -230,4 +220,12 @@ export default function PostTask() {
       </form>
     </div>
   );
+}
+
+/** YYYY-MM-DD plus n days, or "" if there is no date yet. */
+function addDays(ymd: string, n: number) {
+  if (!ymd) return "";
+  const [y, m, d] = ymd.split("-").map(Number);
+  const out = new Date(y, m - 1, d + n);
+  return `${out.getFullYear()}-${String(out.getMonth() + 1).padStart(2, "0")}-${String(out.getDate()).padStart(2, "0")}`;
 }

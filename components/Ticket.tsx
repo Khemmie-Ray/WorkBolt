@@ -10,7 +10,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { Category, Task, TaskStatus } from "@/lib/types";
-import { CATEGORIES, STATUS_LABEL } from "@/lib/types";
+import { CATEGORIES, paymentRequested, STATUS_LABEL } from "@/lib/types";
 import { deadlineText, formatNaira, formatSats } from "@/lib/format";
 import { useNairaPerSat } from "@/lib/hooks";
 import { BondChip } from "./Bond";
@@ -119,10 +119,9 @@ export function SatsStub({
         aria-hidden
       />
       <span
-        className={`font-display font-extrabold leading-none tracking-tight text-plum ${
+        className={`font-display font-extrabold tabular-nums leading-none tracking-tight text-plum ${
           big ? "text-5xl" : "text-3xl"
         }`}
-        style={{ fontVariantNumeric: "tabular-nums" }}
       >
         {formatSats(task.budget_sats)}
       </span>
@@ -135,10 +134,7 @@ export function SatsStub({
         </span>
       )}
       {task.status === "completed" && (
-        <span
-          className="stamp-in absolute right-3 top-3 rounded-md border-[3px] border-teal bg-teal-wash/80 px-2 py-0.5 font-display text-lg font-extrabold leading-tight text-teal"
-          style={{ transform: "rotate(-8deg)" }}
-        >
+        <span className="stamp-in absolute right-3 top-3 -rotate-8 rounded-md border-[3px] border-teal bg-teal-wash/80 px-2 py-0.5 font-display text-lg font-extrabold leading-tight text-teal">
           Paid
         </span>
       )}
@@ -161,7 +157,10 @@ export function TicketCard({ task }: { task: Task }) {
         <p className="line-clamp-2 text-ink-soft">{task.description}</p>
         <div className="mt-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-2">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusRail status={task.status} invoiced={!!task.invoice} />
+            <StatusRail
+              status={task.status}
+              invoiced={paymentRequested(task)}
+            />
             <BondChip task={task} />
           </div>
           <span className="text-sm text-ink-soft">

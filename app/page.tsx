@@ -5,16 +5,18 @@ import { useMemo } from "react";
 import { useMe } from "@/components/Identity";
 import { TicketCard } from "@/components/Ticket";
 import { EscrowSync } from "@/components/Bond";
-import { useTasks } from "@/lib/hooks";
+import { useNow, useTasks } from "@/lib/hooks";
 import { isListed } from "@/lib/escrow";
 import { formatSats } from "@/lib/format";
-import type { Task } from "@/lib/types";
+import { CATEGORIES, paymentRequested, type Task } from "@/lib/types";
 
 const HERO_PHOTO =
   "https://images.pexels.com/photos/1181317/pexels-photo-1181317.jpeg?auto=compress&cs=tinysrgb&w=1200";
 
-function greeting() {
-  const h = new Date().getHours();
+function useGreeting() {
+  const now = useNow();
+  if (!now) return "Hello";
+  const h = new Date(now).getHours();
   return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
 }
 
@@ -39,7 +41,7 @@ export default function Home() {
       {me ? (
         <Dashboard tasks={tasks} meId={me.id} name={me.name} />
       ) : (
-        <Landing />
+        <Landing tasks={tasks} />
       )}
       {me &&
         tasks
@@ -60,7 +62,7 @@ const STEPS = [
   ],
   [
     "Work plus invoice",
-    "They deliver and attach a Lightning invoice. We check it matches your price.",
+    "They deliver and ask to be paid, by Lightning invoice or straight into Flash.",
   ],
   [
     "Pay and close",
@@ -68,7 +70,7 @@ const STEPS = [
   ],
 ];
 
-function Landing() {
+function Landing({ tasks }: { tasks: Task[] }) {
   const { askToJoin } = useMe();
   return (
     <>
@@ -95,7 +97,7 @@ function Landing() {
               onClick={askToJoin}
               className="px-2 font-display font-semibold text-ink-soft underline decoration-line decoration-2 underline-offset-4 hover:text-ink"
             >
-              Join with a name
+              Join with Google
             </button>
           </div>
         </div>
@@ -111,35 +113,7 @@ function Landing() {
             <div className="absolute inset-0 bg-gradient-to-t from-plum/60 via-transparent to-transparent" />
           </div>
 
-          {/* A real ticket from the board, sitting on the photo */}
-          <div className="ticket-float absolute -bottom-5 left-4 right-4 flex overflow-hidden rounded-2xl bg-paper shadow-[0_24px_48px_-20px_rgb(36_22_58/0.55)] sm:left-auto sm:right-[-12px] sm:w-[330px] lg:right-auto lg:left-[-36px]">
-            <div className="flex-1 p-4">
-              <p className="text-xs font-semibold text-ink-soft">Translation</p>
-              <p className="mt-1 font-display font-bold leading-snug">
-                Product labels into Yoruba
-              </p>
-              <p className="mt-1.5 text-xs text-ink-soft">
-                Tolu delivered in 2 days
-              </p>
-            </div>
-            <div className="perf" />
-            <div className="relative grid w-[108px] place-items-center bg-teal-wash px-2 text-center">
-              <div>
-                <p className="font-display text-2xl font-extrabold leading-none text-plum">
-                  2,000
-                </p>
-                <p className="font-display text-xs font-semibold text-plum">
-                  sats
-                </p>
-              </div>
-              <span
-                className="stamp-in absolute right-1.5 top-1.5 rounded border-2 border-teal px-1 font-display text-[11px] font-extrabold text-teal"
-                style={{ transform: "rotate(-8deg)" }}
-              >
-                Paid
-              </span>
-            </div>
-          </div>
+          <HeroTicket tasks={tasks} />
         </figure>
       </section>
 
@@ -178,6 +152,51 @@ function Landing() {
   );
 }
 
+/** The latest paid task on the board, or the newest open one; nothing if the board is empty. */
+function HeroTicket({ tasks }: { tasks: Task[] }) {
+  const task =
+    tasks.find((t) => t.status === "completed") ??
+    tasks.find((t) => t.status === "open" && isListed(t));
+  if (!task) return null;
+  const paid = task.status === "completed";
+  const category =
+    CATEGORIES.find((c) => c.value === task.category)?.label ?? "Task";
+  return (
+    <Link
+      href={`/tasks/${task.id}`}
+      className="ticket-float absolute -bottom-5 left-4 right-4 flex overflow-hidden rounded-2xl bg-paper shadow-[0_24px_48px_-20px_rgb(36_22_58/0.55)] sm:left-auto sm:right-[-12px] sm:w-[330px] lg:right-auto lg:left-[-36px]"
+    >
+      <div className="min-w-0 flex-1 p-4">
+        <p className="text-xs font-semibold text-ink-soft">{category}</p>
+        <p className="mt-1 line-clamp-2 font-display font-bold leading-snug">
+          {task.title}
+        </p>
+        <p className="mt-1.5 truncate text-xs text-ink-soft">
+          {paid
+            ? `${task.assignee_name} did it for ${task.poster_name}`
+            : `Open now, posted by ${task.poster_name}`}
+        </p>
+      </div>
+      <div className="perf" />
+      <div
+        className={`relative grid w-[108px] place-items-center px-2 text-center ${paid ? "bg-teal-wash" : "bg-gold"}`}
+      >
+        <div>
+          <p className="font-display text-2xl font-extrabold leading-none text-plum">
+            {formatSats(task.budget_sats)}
+          </p>
+          <p className="font-display text-xs font-semibold text-plum">sats</p>
+        </div>
+        {paid && (
+          <span className="stamp-in absolute right-1.5 top-1.5 -rotate-8 rounded border-2 border-teal px-1 font-display text-[11px] font-extrabold text-teal">
+            Paid
+          </span>
+        )}
+      </div>
+    </Link>
+  );
+}
+
 // ---------- signed in ----------
 
 function Dashboard({
@@ -199,17 +218,17 @@ function Dashboard({
       if (doing(t) && t.status === "in_progress")
         actions.push({
           task: t,
-          text: t.invoice
+          text: paymentRequested(t)
             ? `Waiting for ${t.poster_name} to pay`
             : `Deliver and send your invoice for ${formatSats(t.budget_sats)} sats`,
           tone: "iris",
         });
       if (mine(t) && t.status === "in_progress")
         actions.push(
-          t.invoice
+          paymentRequested(t)
             ? {
                 task: t,
-                text: `${t.assignee_name} sent an invoice. Pay ${formatSats(t.budget_sats)} sats`,
+                text: `${t.assignee_name} asked to be paid. Pay ${formatSats(t.budget_sats)} sats`,
                 tone: "gold",
               }
             : {
@@ -236,11 +255,12 @@ function Dashboard({
     };
   }, [tasks, meId]);
 
+  const greeting = useGreeting();
   return (
     <>
       <header>
         <p className="font-display text-lg text-ink-soft">
-          {greeting()}, {name}
+          {greeting}, {name}
         </p>
         <h1 className="mt-1 max-w-3xl font-display text-3xl font-extrabold leading-tight tracking-[-0.02em] sm:text-[2.75rem] sm:leading-[1.08]">
           <Ledger {...view} />
