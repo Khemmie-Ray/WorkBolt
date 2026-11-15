@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useNow } from "@/lib/hooks";
 import QRCode from "qrcode";
 import {
   Check,
@@ -19,8 +20,9 @@ import {
   type DecodedInvoice,
 } from "@/lib/lightning";
 import { formatSats, shortAddress } from "@/lib/format";
-import { completeTask, sendInvoice } from "@/lib/store";
-import { escrowAction, payAndGetProof } from "@/lib/server/escrow-clients";
+import { completeTask, requestFlashPayment, sendInvoice } from "@/lib/store";
+import { escrowAction, payAndGetProof } from "@/lib/escrow-client";
+import { freshFlashInvoice, useFlashWatch } from "@/lib/flash-client";
 import type { Profile, Task } from "@/lib/types";
 
 type InvoiceCheck = { ok: boolean; warn?: boolean; text: string };
@@ -29,8 +31,14 @@ type InvoiceCheck = { ok: boolean; warn?: boolean; text: string };
 export function checkInvoice(
   inv: DecodedInvoice,
   agreed: number,
+  flash = false,
 ): InvoiceCheck[] {
   const out: InvoiceCheck[] = [];
+  // Flash pays into a dollar wallet, so its invoices land within a few sats of the price
+  const close =
+    flash &&
+    inv.sats !== null &&
+    Math.abs(inv.sats - agreed) <= Math.max(2, agreed * 0.03);
   if (inv.sats === null)
     out.push({
       ok: false,
@@ -42,6 +50,11 @@ export function checkInvoice(
       ok: true,
       text: `Amount matches the agreed ${formatSats(agreed)} sats`,
     });
+  else if (close)
+    out.push({
+      ok: true,
+      text: `${formatSats(inv.sats)} sats, the agreed price converted to dollars by Flash`,
+    });
   else
     out.push({
       ok: false,
@@ -50,7 +63,9 @@ export function checkInvoice(
   if (isExpired(inv))
     out.push({
       ok: false,
-      text: "This invoice has expired. Create a new one in your wallet.",
+      text: flash
+        ? "This Flash invoice expired. Get a new one."
+        : "This invoice has expired. Create a new one in your wallet.",
     });
   if (inv.network !== "mainnet")
     out.push({
@@ -82,17 +97,22 @@ function Checks({ checks }: { checks: InvoiceCheck[] }) {
 }
 
 export function useQR(invoice: string | null) {
-  const [src, setSrc] = useState<string | null>(null);
+  // Keyed by invoice, so a new invoice never shows the old code while it renders
+  const [qr, setQr] = useState<{ invoice: string; src: string } | null>(null);
   useEffect(() => {
     if (!invoice) return;
+    let live = true;
     // Uppercase bech32 fits in a smaller QR code
     QRCode.toDataURL(`lightning:${invoice.toUpperCase()}`, {
       margin: 1,
       width: 480,
       color: { dark: "#24163a", light: "#ffffff" },
-    }).then(setSrc);
+    }).then((src) => live && setQr({ invoice, src }));
+    return () => {
+      live = false;
+    };
   }, [invoice]);
-  return src;
+  return qr && qr.invoice === invoice ? qr.src : null;
 }
 
 export function CopyButton({ value }: { value: string }) {
@@ -124,9 +144,17 @@ export function InvoiceForm({
   me: Profile;
   replacing?: boolean;
 }) {
-  const [mode, setMode] = useState<"address" | "paste">(
-    me.lightning_address ? "address" : "paste",
-  );
+  type Mode = "flash" | "address" | "paste";
+  const modes: { id: Mode; label: string }[] = [
+    ...(me.flash_account
+      ? [{ id: "flash" as const, label: "Get paid in Flash" }]
+      : []),
+    ...(me.lightning_address
+      ? [{ id: "address" as const, label: "From my Lightning address" }]
+      : []),
+    { id: "paste", label: "Paste from my wallet" },
+  ];
+  const [mode, setMode] = useState<Mode>(modes[0].id);
   const [raw, setRaw] = useState("");
   const [note, setNote] = useState(task.delivery_note ?? "");
   const [busy, setBusy] = useState(false);
@@ -145,17 +173,15 @@ export function InvoiceForm({
     ? checkInvoice(decoded.inv, task.budget_sats)
     : [];
   const blocking = checks.some((c) => !c.ok && !c.warn);
+  const memo = `Workbolt: ${task.title}`.slice(0, 100);
 
   async function generate() {
     setBusy(true);
     setError(null);
     try {
-      const pr = await invoiceFromAddress(
-        me.lightning_address!,
-        task.budget_sats,
-        `Workbolt: ${task.title}`.slice(0, 120),
+      setRaw(
+        await invoiceFromAddress(me.lightning_address!, task.budget_sats, memo),
       );
-      setRaw(pr);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -163,7 +189,29 @@ export function InvoiceForm({
     }
   }
 
+  function pick(m: Mode) {
+    setMode(m);
+    setRaw("");
+    setError(null);
+  }
+
+  async function submitFlash() {
+    setBusy(true);
+    setError(null);
+    try {
+      if (task.bond_status === "locked") {
+        // Escrow records the Flash wallet; it also checks the wallet exists
+        await escrowAction(task.id, "invoice", { flash: true });
+      }
+      await requestFlashPayment(task.id, note.trim());
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+
   async function submit() {
+    if (mode === "flash") return submitFlash();
     if (!decoded?.inv) return setError("Paste or create an invoice first.");
     if (blocking)
       return setError("Fix the invoice problems above before sending.");
@@ -171,11 +219,9 @@ export function InvoiceForm({
     setError(null);
     try {
       if (task.bond_status === "locked") {
-        // Record the invoice with escrow first, so the payment proof can be checked against it
-        await escrowAction(task.id, "invoice", {
-          invoice: decoded.inv.raw,
-          payout_address: me.lightning_address,
-        });
+        // Record the invoice with escrow first, so the payment proof can be checked against it.
+        // The server takes the payout (Flash or Lightning address) from this person's own profile.
+        await escrowAction(task.id, "invoice", { invoice: decoded.inv.raw });
       }
       await sendInvoice(task.id, decoded.inv.raw, note.trim());
     } catch (e) {
@@ -206,24 +252,38 @@ export function InvoiceForm({
         />
       </label>
 
-      {me.lightning_address && (
-        <div className="inline-flex rounded-full bg-mist p-1" role="tablist">
-          <button
-            role="tab"
-            aria-selected={mode === "address"}
-            onClick={() => setMode("address")}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-semibold ${mode === "address" ? "bg-paper shadow-sm" : "text-ink-soft"}`}
-          >
-            From my Lightning address
-          </button>
-          <button
-            role="tab"
-            aria-selected={mode === "paste"}
-            onClick={() => setMode("paste")}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-semibold ${mode === "paste" ? "bg-paper shadow-sm" : "text-ink-soft"}`}
-          >
-            Paste from my wallet
-          </button>
+      {modes.length > 1 && (
+        <div
+          className="inline-flex flex-wrap gap-1 rounded-2xl bg-mist p-1"
+          role="tablist"
+        >
+          {modes.map((m) => (
+            <button
+              key={m.id}
+              role="tab"
+              aria-selected={mode === m.id}
+              onClick={() => pick(m.id)}
+              className={`rounded-full px-3.5 py-1.5 text-sm font-semibold ${mode === m.id ? "bg-paper shadow-sm" : "text-ink-soft"}`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mode === "flash" && me.flash_account && (
+        <div className="rounded-xl bg-mist p-4 text-sm">
+          <p>
+            {task.poster_name} will pay {formatSats(task.budget_sats)} sats
+            straight into your Flash cash wallet (
+            <strong>{shortAddress(me.flash_account)}</strong>), where it arrives
+            as dollars.
+          </p>
+          <p className="mt-2 text-ink-soft">
+            Flash invoices last 60 seconds, so Workbolt creates one the moment{" "}
+            {task.poster_name} is ready to pay. Flash confirms the payment and
+            the task closes itself.
+          </p>
         </div>
       )}
 
@@ -245,13 +305,15 @@ export function InvoiceForm({
         </div>
       )}
 
-      {(mode === "paste" || raw) && (
+      {(mode === "paste" || (mode === "address" && raw)) && (
         <label className="field">
           <span>Lightning invoice</span>
           <textarea
             rows={3}
             value={raw}
-            onChange={(e) => setRaw(e.target.value)}
+            onChange={(e) => {
+              setRaw(e.target.value);
+            }}
             placeholder="lnbc20u1p…"
             className="font-mono text-sm break-all"
             spellCheck={false}
@@ -260,18 +322,21 @@ export function InvoiceForm({
             In Flash or any Lightning wallet, tap Receive, enter{" "}
             {formatSats(task.budget_sats)} sats and copy the invoice.
             {!me.lightning_address &&
-              " Save a Lightning address in your profile and the board can create it for you."}
+              !me.flash_account &&
+              " Add a Lightning address or your Flash account in your profile and Workbolt can request it for you."}
           </small>
         </label>
       )}
 
-      {task.bond_status === "locked" && !me.lightning_address && (
-        <p className="text-sm text-gold-deep">
-          Add a Lightning address in your profile before sending. Without it you
-          can&apos;t claim {task.poster_name}&apos;s commitment if they
-          don&apos;t pay.
-        </p>
-      )}
+      {task.bond_status === "locked" &&
+        !me.lightning_address &&
+        !me.flash_account && (
+          <p className="text-sm text-gold-deep">
+            Add your Flash username or a Lightning address in your profile
+            before sending. Without it you can&apos;t claim {task.poster_name}
+            &apos;s commitment if they don&apos;t pay.
+          </p>
+        )}
 
       {decoded?.err && (
         <p className="text-sm font-semibold text-danger">{decoded.err}</p>
@@ -286,10 +351,12 @@ export function InvoiceForm({
       <button
         type="button"
         onClick={submit}
-        disabled={busy || !decoded?.inv || blocking}
+        disabled={busy || (mode !== "flash" && (!decoded?.inv || blocking))}
         className="btn-primary"
       >
-        Send invoice to {task.poster_name}
+        {mode === "flash"
+          ? `Request payment in Flash`
+          : `Send invoice to ${task.poster_name}`}
       </button>
     </div>
   );
@@ -298,6 +365,14 @@ export function InvoiceForm({
 // ---------- requester: pay and close ----------
 
 export function InvoicePay({ task, canPay }: { task: Task; canPay: boolean }) {
+  return task.invoice_source === "flash" ? (
+    <FlashPay task={task} canPay={canPay} />
+  ) : (
+    <LightningPay task={task} canPay={canPay} />
+  );
+}
+
+function LightningPay({ task, canPay }: { task: Task; canPay: boolean }) {
   const inv = useMemo(() => {
     try {
       return decodeInvoice(task.invoice!);
@@ -331,16 +406,7 @@ export function InvoicePay({ task, canPay }: { task: Task; canPay: boolean }) {
           "That payment proof does not match this invoice. Copy the preimage from your wallet's payment details.",
         );
       if (bondLocked) {
-        await escrowAction(
-          task.id,
-          "release",
-          { preimage: proof },
-          {
-            status: "completed",
-            preimage: proof,
-            completed_at: new Date().toISOString(),
-          },
-        );
+        await escrowAction(task.id, "release", { preimage: proof });
       } else {
         await completeTask(task.id, proof);
       }
@@ -455,20 +521,187 @@ export function InvoicePay({ task, canPay }: { task: Task; canPay: boolean }) {
   );
 }
 
-export function PaymentProof({ task }: { task: Task }) {
-  const [verified, setVerified] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!task.preimage || !task.invoice) return;
-    try {
-      preimageMatches(
-        task.preimage,
-        decodeInvoice(task.invoice).paymentHash,
-      ).then(setVerified);
-    } catch {
-      setVerified(false);
-    }
-  }, [task.preimage, task.invoice]);
+// ---------- Flash: invoice made at pay time (Flash invoices last 60 seconds) ----------
 
+function FlashPay({ task, canPay }: { task: Task; canPay: boolean }) {
+  const flash = useFlashWatch(task);
+  const qr = useQR(task.invoice);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const nowMs = useNow();
+
+  const inv = useMemo(() => {
+    try {
+      return task.invoice ? decodeInvoice(task.invoice) : null;
+    } catch {
+      return null;
+    }
+  }, [task.invoice]);
+
+  const secondsLeft = inv
+    ? Math.max(0, Math.round(inv.expiresAt - nowMs / 1000))
+    : 0;
+  const paid = flash.status === "PAID";
+  const live =
+    !!inv && !!nowMs && !paid && secondsLeft > 0 && flash.status !== "EXPIRED";
+
+  async function getInvoice() {
+    setBusy(true);
+    setError(null);
+    try {
+      await freshFlashInvoice(task.id);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function payConnected() {
+    if (!inv) return;
+    setError(null);
+    try {
+      await payAndGetProof(inv.raw); // Flash confirms the payment; the watcher closes the task
+    } catch (e) {
+      setError((e as Error).message || "The payment did not go through.");
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="font-display text-lg font-bold">
+          {canPay
+            ? `Pay ${task.assignee_name} in Flash`
+            : "Payment requested in Flash"}
+        </h3>
+        <p className="mt-1 text-ink-soft">
+          {canPay
+            ? `${formatSats(task.budget_sats)} sats go straight into ${task.assignee_name}'s Flash cash wallet. Flash invoices last 60 seconds, so get one when you're ready to pay.`
+            : `Waiting for ${task.poster_name} to pay. It lands in your Flash cash wallet as dollars, and the task closes itself.`}
+        </p>
+      </div>
+
+      {(live || paid) && (
+        <div className="flex items-start gap-3 rounded-xl bg-plum p-4 text-paper">
+          <span
+            className="mt-1.5 h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-gold"
+            aria-hidden
+          />
+          <div className="text-sm">
+            <p className="font-display font-bold">
+              {paid
+                ? "Flash confirmed the payment. Closing the task…"
+                : "Flash is watching this invoice"}
+            </p>
+            {!paid && (
+              <p className="mt-0.5 text-[#cfc6e0]">
+                No payment proof to copy. Flash tells Workbolt when it&apos;s
+                paid.
+              </p>
+            )}
+            {flash.error && (
+              <p className="mt-1 font-semibold text-[#ffb4b4]">{flash.error}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {canPay && live && inv && (
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+          {qr && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={qr}
+              alt="Flash invoice QR code"
+              className="w-full max-w-[220px] rounded-xl border border-line bg-white p-2"
+            />
+          )}
+          <div className="min-w-0 flex-1 space-y-4">
+            <p
+              className={`font-display text-2xl font-extrabold ${secondsLeft <= 15 ? "text-danger" : "text-plum"}`}
+              aria-live="polite"
+            >
+              {secondsLeft}s left
+            </p>
+            <Checks checks={checkInvoice(inv, task.budget_sats, true)} />
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={payConnected} className="btn-gold">
+                <Wallet size={16} /> Pay with a connected wallet
+              </button>
+              <a href={`lightning:${inv.raw}`} className="btn-ghost">
+                <ExternalLink size={16} /> Open in wallet
+              </a>
+              <CopyButton value={inv.raw} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {canPay && !live && !paid && (
+        <div className="space-y-2">
+          {inv && (
+            <p className="text-sm font-semibold text-gold-deep">
+              That invoice expired without payment. Nothing was taken.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={getInvoice}
+            disabled={busy}
+            className="btn-gold"
+          >
+            <Zap size={16} fill="currentColor" />{" "}
+            {busy
+              ? "Asking Flash…"
+              : inv
+                ? "Get a new Flash invoice"
+                : "Get Flash invoice"}
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <p className="text-sm font-semibold text-danger" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function PaymentProof({ task }: { task: Task }) {
+  const hash = useMemo(() => {
+    try {
+      return task.invoice ? decodeInvoice(task.invoice).paymentHash : null;
+    } catch {
+      return null;
+    }
+  }, [task.invoice]);
+  const [checked, setChecked] = useState<{ key: string; ok: boolean } | null>(
+    null,
+  );
+  const key = `${task.preimage}:${hash}`;
+  useEffect(() => {
+    if (!task.preimage || !hash) return;
+    let live = true;
+    preimageMatches(task.preimage, hash).then(
+      (ok) => live && setChecked({ key, ok }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [task.preimage, hash, key]);
+  const verified = !hash ? false : checked?.key === key ? checked.ok : null;
+
+  if (task.paid_via === "flash")
+    return (
+      <p className="flex items-start gap-2 text-sm font-semibold text-teal">
+        <ShieldCheck size={16} className="mt-0.5 shrink-0" />
+        Flash confirmed this invoice was paid into {task.assignee_name}&apos;s
+        Flash wallet.
+      </p>
+    );
   if (!task.preimage)
     return (
       <p className="text-sm text-ink-soft">
