@@ -1,125 +1,100 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { LogOut, ShieldCheck } from "lucide-react";
 import { useMe } from "@/components/Identity";
-import { useProfiles } from "@/lib/hooks";
-import { resetDemo, updateProfile } from "@/lib/store";
-import { isLive } from "@/lib/supabase";
+import { updateMyProfile } from "@/lib/store";
 import { isLightningAddress } from "@/lib/lightning";
+import { checkFlashAccount } from "@/lib/flash-client";
 import { shortAddress } from "@/lib/format";
-import { signWithTrezor, statementFor, verifyOnServer } from "@/lib/trezor";
+import {
+  checkTrezorProof,
+  saveTrezorProof,
+  signWithTrezor,
+  statementFor,
+} from "@/lib/trezor";
 import type { Profile } from "@/lib/types";
 
 export default function ProfilePage() {
-  const { me, ready, askToJoin, switchTo } = useMe();
-  const { data: profiles } = useProfiles();
+  const { me, ready, askToJoin, signOut } = useMe();
 
   if (!ready) return null;
 
+  if (!me)
+    return (
+      <div className="max-w-2xl">
+        <h1 className="font-display text-3xl font-bold sm:text-4xl">
+          Profile and wallet
+        </h1>
+        <p className="mt-2 text-ink-soft">
+          Sign in to post tasks, take them on and get paid.
+        </p>
+        <button onClick={askToJoin} className="btn-primary mt-5">
+          Join with Google
+        </button>
+      </div>
+    );
+
   return (
     <div className="max-w-2xl space-y-10">
-      <h1 className="font-display text-3xl font-bold sm:text-4xl">
-        {me ? me.name : "Profile and wallet"}
-      </h1>
-
-      {me ? (
-        <>
-          <Details me={me} />
-          <Trezor me={me} />
-        </>
-      ) : (
-        <div>
-          <p className="text-ink-soft">
-            Join to post tasks, accept them and get paid.
-          </p>
-          <button onClick={askToJoin} className="btn-primary mt-4">
-            Join the board
-          </button>
-        </div>
-      )}
-
-      {profiles.length > 0 && (
-        <section>
-          <h2 className="font-display text-lg font-bold">Switch profile</h2>
-          <p className="mt-1 text-ink-soft">
-            Handy for demos: act as the person posting in one tab and the
-            freelancer in another.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {profiles.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => switchTo(p.id)}
-                aria-pressed={me?.id === p.id}
-                className={`rounded-full border px-3.5 py-1.5 text-sm font-semibold ${
-                  me?.id === p.id
-                    ? "border-plum bg-plum text-paper"
-                    : "border-line bg-paper hover:border-ink-soft"
-                }`}
-              >
-                {p.name}
-              </button>
-            ))}
-            {me && (
-              <button
-                onClick={() => switchTo(null)}
-                className="px-2 text-sm font-semibold text-ink-soft underline underline-offset-4"
-              >
-                Sign out
-              </button>
-            )}
-          </div>
-        </section>
-      )}
-
-      {!isLive && (
-        <section className="rounded-[18px] border-2 border-dashed border-line p-5">
-          <h2 className="font-display font-bold">Demo mode</h2>
-          <p className="mt-1 text-sm text-ink-soft">
-            Tasks are saved in this browser only. Add your Supabase keys to
-            share one board between devices.
-          </p>
-          <button
-            onClick={() => {
-              resetDemo();
-              switchTo(null);
-            }}
-            className="mt-3 text-sm font-semibold underline underline-offset-4"
-          >
-            Reset demo tasks
-          </button>
-        </section>
-      )}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h1 className="font-display text-3xl font-bold sm:text-4xl">
+          {me.name}
+        </h1>
+        <button
+          onClick={signOut}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-soft underline underline-offset-4 hover:text-ink"
+        >
+          <LogOut size={15} aria-hidden /> Sign out
+        </button>
+      </div>
+      {/* Remount when the saved profile changes, so the form shows what is stored */}
+      <Details
+        key={`${me.name}|${me.skills}|${me.flash_account}|${me.lightning_address}`}
+        me={me}
+      />
+      <Trezor me={me} />
     </div>
   );
 }
 
 function Details({ me }: { me: Profile }) {
-  const [address, setAddress] = useState(me.lightning_address ?? "");
+  const [name, setName] = useState(me.name);
   const [skills, setSkills] = useState(me.skills ?? "");
+  const [flash, setFlash] = useState(me.flash_account ?? "");
+  const [address, setAddress] = useState(me.lightning_address ?? "");
+  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
-  useEffect(() => {
-    setAddress(me.lightning_address ?? "");
-    setSkills(me.skills ?? "");
-  }, [me.id, me.lightning_address, me.skills]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (address && !isLightningAddress(address))
+    if (!name.trim())
+      return setMsg({
+        ok: false,
+        text: "Add the name people see on your tasks.",
+      });
+    if (address.trim() && !isLightningAddress(address))
       return setMsg({
         ok: false,
         text: "A Lightning address looks like name@wallet.com.",
       });
+    setBusy(true);
+    setMsg(null);
     try {
-      await updateProfile(me.id, {
-        lightning_address: address.trim() || null,
+      const fa = flash.trim().replace(/^@/, "");
+      if (fa && fa !== me.flash_account) await checkFlashAccount(fa);
+      await updateMyProfile(me.id, {
+        name: name.trim(),
         skills: skills.trim() || null,
+        flash_account: fa || null,
+        lightning_address: address.trim() || null,
+        onboarded: true,
       });
       setMsg({ ok: true, text: "Profile saved." });
     } catch (err) {
       setMsg({ ok: false, text: (err as Error).message });
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -129,17 +104,13 @@ function Details({ me }: { me: Profile }) {
       className="space-y-5 rounded-[20px] bg-paper p-5 shadow-ticket sm:p-7"
     >
       <label className="field">
-        <span>Lightning address</span>
+        <span>Your name</span>
         <input
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          placeholder="you@flashapp.me"
-          inputMode="email"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={60}
         />
-        <small>
-          Find it in your wallet under Receive. With it saved, the board can
-          create an invoice for the exact agreed price when you finish a task.
-        </small>
+        <small>Shown on every task you post or take on.</small>
       </label>
       <label className="field">
         <span>What you can do</span>
@@ -147,9 +118,45 @@ function Details({ me }: { me: Profile }) {
           rows={3}
           value={skills}
           onChange={(e) => setSkills(e.target.value)}
-          placeholder="Igbo translation, flyer design, GCSE maths"
+          placeholder="Igbo translation, flyer design, maths tutoring"
+          maxLength={300}
         />
       </label>
+
+      <fieldset className="space-y-4 rounded-xl bg-mist p-4">
+        <legend className="sr-only">Where you get paid</legend>
+        <p className="font-display text-sm font-semibold">Where you get paid</p>
+        <label className="field">
+          <span>Flash username or wallet ID</span>
+          <input
+            value={flash}
+            onChange={(e) => setFlash(e.target.value)}
+            placeholder="yourname, or 0e227eec-40e9-…"
+            autoCapitalize="none"
+            spellCheck={false}
+          />
+          <small>
+            With Flash, posters pay straight into your Flash cash wallet and the
+            task closes itself. Workbolt checks the account with Flash when you
+            save.
+          </small>
+        </label>
+        <label className="field">
+          <span>Lightning address</span>
+          <input
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="you@getalby.com"
+            inputMode="email"
+            autoCapitalize="none"
+          />
+          <small>
+            Workbolt asks it for an invoice of the exact agreed price when you
+            finish a task.
+          </small>
+        </label>
+      </fieldset>
+
       {msg && (
         <p
           className={`text-sm font-semibold ${msg.ok ? "text-teal" : "text-danger"}`}
@@ -157,7 +164,9 @@ function Details({ me }: { me: Profile }) {
           {msg.text}
         </p>
       )}
-      <button className="btn-primary">Save profile</button>
+      <button className="btn-primary" disabled={busy}>
+        {busy ? "Saving…" : "Save profile"}
+      </button>
     </form>
   );
 }
@@ -165,16 +174,23 @@ function Details({ me }: { me: Profile }) {
 function Trezor({ me }: { me: Profile }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checked, setChecked] = useState<boolean | null>(null);
+  const [checked, setChecked] = useState<{ sig: string; ok: boolean } | null>(
+    null,
+  );
 
+  // Re-check the saved signature on the server, so a stale badge is flagged
   useEffect(() => {
-    if (me.trezor_address && me.trezor_message && me.trezor_signature)
-      verifyOnServer(
-        me.trezor_message,
-        me.trezor_address,
-        me.trezor_signature,
-      ).then(setChecked);
-  }, [me.trezor_address, me.trezor_message, me.trezor_signature]);
+    const { trezor_address: a, trezor_message: m, trezor_signature: s } = me;
+    if (!a || !m || !s) return;
+    let live = true;
+    checkTrezorProof(m, a, s)
+      .then((ok) => live && setChecked({ sig: s, ok }))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [me]);
+  const broken = checked?.sig === me.trezor_signature && !checked.ok;
 
   async function prove() {
     setBusy(true);
@@ -182,13 +198,7 @@ function Trezor({ me }: { me: Profile }) {
     try {
       const message = statementFor(me.name, me.id);
       const { address, signature } = await signWithTrezor(message);
-      if (!(await verifyOnServer(message, address, signature)))
-        throw new Error("The signature did not verify. Try again.");
-      await updateProfile(me.id, {
-        trezor_address: address,
-        trezor_message: message,
-        trezor_signature: signature,
-      });
+      await saveTrezorProof(message, address, signature);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -205,7 +215,7 @@ function Trezor({ me }: { me: Profile }) {
       {me.trezor_address ? (
         <div className="mt-3 space-y-2">
           <p>
-            {checked === false
+            {broken
               ? "The saved signature no longer checks out. Sign again."
               : "This profile is signed by a key held on a Trezor. Others see a verified badge next to your name."}
           </p>

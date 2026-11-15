@@ -22,10 +22,10 @@ export default function MyWork() {
       <div className="max-w-xl">
         <h1 className="font-display text-3xl font-bold sm:text-4xl">My work</h1>
         <p className="mt-2 text-ink-soft">
-          Join the board to see the tasks you post and the ones you take on.
+          Sign in to see the tasks you post and the ones you take on.
         </p>
         <button onClick={askToJoin} className="btn-primary mt-6">
-          Join the board
+          Join with Google
         </button>
       </div>
     );
