@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ExternalLink, Lock, LockOpen, Wallet } from "lucide-react";
 import { CopyButton, useQR } from "./Invoice";
 import {
   escrowAction,
   payWithConnectedWallet,
   useEscrow,
-} from "@/lib/server/escrow-clients";
+} from "@/lib/escrow-client";
+import { useNow } from "@/lib/hooks";
 import { formatDateTime, formatSats } from "@/lib/format";
 import { bondFor } from "@/lib/escrow";
 import type { Task } from "@/lib/types";
@@ -59,12 +60,7 @@ export function BondLock({ task }: { task: Task }) {
     setBusy(true);
     setError(null);
     try {
-      setView(
-        await escrowAction(task.id, "create", {
-          budget_sats: task.budget_sats,
-          title: task.title,
-        }),
-      );
+      setView(await escrowAction(task.id, "create"));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -172,15 +168,9 @@ export function ClaimBond({ task }: { task: Task }) {
   const { view, setView } = useEscrow(task.id, task.bond_status === "locked");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState<number | null>(null);
+  const nowMs = useNow();
 
-  useEffect(() => {
-    setNowMs(Date.now());
-    const t = setInterval(() => setNowMs(Date.now()), 15_000);
-    return () => clearInterval(t);
-  }, []);
-
-  if (!view || view.status !== "locked" || !view.claimable_at || nowMs === null)
+  if (!view || view.status !== "locked" || !view.claimable_at || !nowMs)
     return null;
   const ready = nowMs >= new Date(view.claimable_at).getTime();
 

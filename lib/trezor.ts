@@ -1,5 +1,8 @@
 "use client";
 
+import { api } from "./api";
+import { notifyChanged } from "./store";
+
 const PATH = "m/84'/0'/0'/0/0";
 
 let ready: Promise<typeof import("@trezor/connect-web").default> | null = null;
@@ -14,7 +17,7 @@ function connect() {
           appUrl:
             typeof window !== "undefined"
               ? window.location.origin
-              : "https://sats-for-skills.app",
+              : "https://workbolt.app",
           email:
             process.env.NEXT_PUBLIC_TREZOR_MANIFEST_EMAIL ?? "team@example.com",
         },
@@ -48,16 +51,32 @@ export async function signWithTrezor(
   return { address: res.payload.address, signature: res.payload.signature };
 }
 
-export async function verifyOnServer(
+/** The server checks the signature names this profile, verifies it, and saves the badge. */
+export async function saveTrezorProof(
+  message: string,
+  address: string,
+  signature: string,
+) {
+  await api("/api/verify-signature", {
+    action: "save",
+    message,
+    address,
+    signature,
+  });
+  notifyChanged();
+}
+
+/** Re-check a saved signature, for showing whether the badge still holds. */
+export async function checkTrezorProof(
   message: string,
   address: string,
   signature: string,
 ): Promise<boolean> {
-  const res = await fetch("/api/verify-signature", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, address, signature }),
+  const data = await api<{ valid: boolean }>("/api/verify-signature", {
+    action: "check",
+    message,
+    address,
+    signature,
   });
-  const data = await res.json();
   return data.valid === true;
 }

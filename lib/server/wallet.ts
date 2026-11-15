@@ -3,7 +3,7 @@ import "server-only";
 export interface HoldTx {
   state: "settled" | "pending" | "failed" | "accepted";
   invoice: string;
-  amount: number; // msats
+  amount: number; 
 }
 
 export interface EscrowWallet {
@@ -24,20 +24,12 @@ export function walletConfigured() {
   return !!process.env.WORKBOLT_NWC_URL;
 }
 
-export function isFakeWallet() {
-  return process.env.WORKBOLT_NWC_URL === "fake";
-}
-
 export async function withWallet<T>(
   fn: (w: EscrowWallet) => Promise<T>,
 ): Promise<T> {
   const url = process.env.WORKBOLT_NWC_URL;
   if (!url)
-    throw new Error("Escrow wallet is not set up. Add WORKBOLT_NWC_URL.");
-  if (url === "fake") {
-    const { fakeWallet } = await import("./fake-wallet");
-    return fn(fakeWallet());
-  }
+    throw new Error("The commitment bond is switched off on this server.");
   const { NWCClient } = await import("@getalby/sdk/nwc");
   const client = new NWCClient({ nostrWalletConnectUrl: url });
   try {
