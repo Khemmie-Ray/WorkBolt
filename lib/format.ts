@@ -10,13 +10,6 @@ export function formatNaira(n: number): string {
   }).format(n);
 }
 
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-  });
-}
-
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString("en-GB", {
     day: "numeric",

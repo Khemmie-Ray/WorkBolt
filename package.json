@@ -16,7 +16,6 @@
     "@supabase/supabase-js": "^2.119.0",
     "@trezor/connect-web": "^10.0.1",
     "bitcoinjs-message": "^2.2.0",
-    "bolt11": "^1.4.2",
     "light-bolt11-decoder": "^3.2.0",
     "lucide-react": "^1.70.0",
     "next": "16.4.6",

@@ -2,11 +2,11 @@ import { decode } from "light-bolt11-decoder";
 
 export interface DecodedInvoice {
   raw: string;
-  sats: number | null; 
+  sats: number | null;
   paymentHash: string;
   description: string | null;
-  createdAt: number; 
-  expiresAt: number; 
+  createdAt: number;
+  expiresAt: number;
   network: "mainnet" | "testnet" | "signet" | "regtest";
 }
 
@@ -98,22 +98,4 @@ export async function invoiceFromAddress(
       data.error ?? "That Lightning address did not return an invoice.",
     );
   return data.invoice as string;
-}
-
-interface WebLN {
-  enable: () => Promise<void>;
-  sendPayment: (invoice: string) => Promise<{ preimage: string }>;
-}
-
-export function getWebLN(): WebLN | null {
-  if (typeof window === "undefined") return null;
-  return (window as unknown as { webln?: WebLN }).webln ?? null;
-}
-
-export async function payWithWebLN(invoice: string): Promise<string> {
-  const webln = getWebLN();
-  if (!webln) throw new Error("No browser wallet found.");
-  await webln.enable();
-  const { preimage } = await webln.sendPayment(invoice);
-  return preimage;
 }
