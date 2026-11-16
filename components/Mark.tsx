@@ -1,7 +1,19 @@
 
-export function Mark({ size = 40 }: { size?: number }) {
+export function Mark({
+  size = 40,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 100 100"
+      className={className}
+      aria-hidden
+    >
       <g fill="#F0A202">
         <path d="M14 26h44 L50 50 H61 L53 74 H14 a6 6 0 0 1 -6 -6 V32 a6 6 0 0 1 6 -6z" />
         <g transform="rotate(9 78 50) translate(7 -3)">

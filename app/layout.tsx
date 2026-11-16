@@ -34,10 +34,11 @@ export default function RootLayout({
             <div id="page-scroll" className="min-h-0 flex-1 overflow-y-auto">
               <Mobileheader />
               <div className="mx-auto w-[85%] max-w-[1550px] pb-28 md:py-10">
+                {/* Separate boundaries, so ScrollReset reading the URL can never hold back the page */}
                 <Suspense fallback={null}>
                   <ScrollReset targetId="page-scroll" />
-                  {children}
                 </Suspense>
+                <Suspense fallback={null}>{children}</Suspense>
               </div>
             </div>
           </main>

@@ -1,16 +1,17 @@
+
 import Link from "next/link";
 import { Wordmark } from "@/components/Wordmark";
 import { Mark } from "@/components/Mark";
 
 export default function Mobileheader() {
   return (
-    <div className="mb-6 border-b border-gray-400/20 py-5 md:hidden">
+    <div className="mb-6 border-b border-gray-400/20 py-5">
       <Link
         href="/"
         aria-label="Workbolt home"
         className="mx-auto flex w-[90%] items-center gap-1"
       >
-        <Mark size={34} />
+        <Mark size={34} className="lg:hidden md:hidden flex" />
         <Wordmark className="text-2xl" />
       </Link>
     </div>
