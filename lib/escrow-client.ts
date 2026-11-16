@@ -41,7 +41,6 @@ export async function escrowAction(
   return data.escrow;
 }
 
-/** Bond state for one task, refreshed from the wallet; polled while the poster is paying. */
 export function useEscrow(taskId: string, enabled: boolean) {
   const [view, setView] = useState<EscrowView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +49,7 @@ export function useEscrow(taskId: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     let stale = false;
+    let next: ReturnType<typeof setTimeout> | null = null;
     api<{ escrow: EscrowView | null }>(
       `/api/escrow/${encodeURIComponent(taskId)}`,
     )
@@ -57,18 +57,19 @@ export function useEscrow(taskId: string, enabled: boolean) {
         if (stale) return;
         setView(d.escrow);
         setError(null);
+        if (d.escrow?.status === "awaiting")
+          next = setTimeout(() => setTick((n) => n + 1), 5000);
       })
-      .catch((e: Error) => !stale && setError(e.message));
+      .catch((e: Error) => {
+        if (stale) return;
+        setError(e.message);
+        next = setTimeout(() => setTick((n) => n + 1), 10000);
+      });
     return () => {
       stale = true;
+      if (next) clearTimeout(next);
     };
   }, [enabled, taskId, tick]);
-
-  useEffect(() => {
-    if (!enabled || view?.status !== "awaiting") return;
-    const t = setInterval(() => setTick((n) => n + 1), 3000);
-    return () => clearInterval(t);
-  }, [enabled, view?.status]);
 
   return { view, setView, error };
 }

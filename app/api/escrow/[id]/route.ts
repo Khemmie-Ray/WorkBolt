@@ -1,3 +1,4 @@
+// File: app/api/escrow/[id]/route.ts
 import { NextResponse } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { bondFor } from "@/lib/escrow";
@@ -185,7 +186,7 @@ async function attachInvoice(task: Task, body: Record<string, unknown>) {
 async function release(task: Task, body: Record<string, unknown>) {
   const rec = await getEscrow(task.id);
   if (!rec) return fail("This task has no commitment.");
-  const cur = await syncEscrow(rec);
+  const cur = await syncEscrow(rec, { strict: true });
   if (cur.status === "returned")
     return NextResponse.json({ escrow: toView(cur) });
   if (cur.status !== "locked")
@@ -218,7 +219,7 @@ async function release(task: Task, body: Record<string, unknown>) {
 async function claim(task: Task) {
   const rec = await getEscrow(task.id);
   if (!rec) return fail("This task has no commitment.");
-  const cur = await syncEscrow(rec);
+  const cur = await syncEscrow(rec, { strict: true });
   if (cur.status === "claimed")
     return NextResponse.json({ escrow: toView(cur) });
   if (cur.status !== "locked")
