@@ -1,6 +1,8 @@
+// File: app/profile/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { LogOut, ShieldCheck } from "lucide-react";
 import { useMe } from "@/components/Identity";
 import { updateMyProfile } from "@/lib/store";
@@ -16,7 +18,7 @@ import {
 import type { Profile } from "@/lib/types";
 
 export default function ProfilePage() {
-  const { me, ready, askToJoin, signOut } = useMe();
+  const { me, email, ready, askToJoin, signOut } = useMe();
 
   if (!ready) return null;
 
@@ -37,24 +39,72 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-2xl space-y-10">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="font-display text-3xl font-bold sm:text-4xl">
-          {me.name}
-        </h1>
-        <button
-          onClick={signOut}
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-soft underline underline-offset-4 hover:text-ink"
-        >
-          <LogOut size={15} aria-hidden /> Sign out
-        </button>
-      </div>
+      <h1 className="font-display text-3xl font-bold sm:text-4xl">{me.name}</h1>
       {/* Remount when the saved profile changes, so the form shows what is stored */}
       <Details
         key={`${me.name}|${me.skills}|${me.flash_account}|${me.lightning_address}`}
         me={me}
       />
       <Trezor me={me} />
+      <Account email={email} onSignOut={signOut} />
     </div>
+  );
+}
+
+function Account({
+  email,
+  onSignOut,
+}: {
+  email: string | null;
+  onSignOut: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <section className="rounded-[20px] border border-line p-5 sm:p-7">
+      <h2 className="font-display text-lg font-bold">Account</h2>
+      <p className="mt-2 text-ink-soft">
+        Signed in with Google
+        {email ? (
+          <>
+            {" "}
+            as <span className="font-semibold text-ink break-all">{email}</span>
+          </>
+        ) : null}
+        . Your email isn&apos;t shown to other users.
+      </p>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          await onSignOut().finally(() => setBusy(false));
+        }}
+        className="btn-ghost mt-4"
+      >
+        <LogOut size={16} aria-hidden />
+        {busy ? "Signing out…" : "Sign out"}
+      </button>
+      <p className="mt-3 text-sm text-ink-soft">
+        This signs you out of Workbolt on this device. Your Google account stays
+        signed in elsewhere, and next time Google lets you choose which account
+        to use.
+      </p>
+      <p className="mt-4 text-sm">
+        <Link
+          href="/terms"
+          className="font-semibold underline underline-offset-4"
+        >
+          Terms of Service
+        </Link>
+        <span className="mx-2 text-ink-soft">·</span>
+        <Link
+          href="/privacy"
+          className="font-semibold underline underline-offset-4"
+        >
+          Privacy Policy
+        </Link>
+      </p>
+    </section>
   );
 }
 

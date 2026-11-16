@@ -7,6 +7,7 @@ import {
   useEffect,
   useState,
 } from "react";
+import Link from "next/link";
 import { X } from "lucide-react";
 import { supabase, NOT_CONFIGURED } from "@/lib/supabase";
 import { getProfile, subscribe, updateMyProfile } from "@/lib/store";
@@ -16,6 +17,7 @@ import type { Profile } from "@/lib/types";
 
 interface IdentityCtx {
   me: Profile | null;
+  email: string | null; // the Google account's email; never shown to other users
   ready: boolean;
   askToJoin: () => void;
   signOut: () => Promise<void>;
@@ -23,6 +25,7 @@ interface IdentityCtx {
 
 const Ctx = createContext<IdentityCtx>({
   me: null,
+  email: null,
   ready: false,
   askToJoin: () => {},
   signOut: async () => {},
@@ -32,6 +35,7 @@ export const useMe = () => useContext(Ctx);
 
 export function IdentityProvider({ children }: { children: React.ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
   const [me, setMe] = useState<Profile | null>(null);
   const [ready, setReady] = useState(false);
   const [joining, setJoining] = useState(false);
@@ -42,10 +46,12 @@ export function IdentityProvider({ children }: { children: React.ReactNode }) {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data }) => {
       setUserId(data.session?.user.id ?? null);
+      setEmail(data.session?.user.email ?? null);
       if (!data.session) setReady(true);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserId(session?.user.id ?? null);
+      setEmail(session?.user.email ?? null);
       if (!session) {
         setMe(null);
         setReady(true);
@@ -96,7 +102,7 @@ export function IdentityProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ me, ready, askToJoin: () => setJoining(true), signOut }}
+      value={{ me, email, ready, askToJoin: () => setJoining(true), signOut }}
     >
       {children}
       {error && userId && (
@@ -130,7 +136,11 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
     setError(null);
     const { error } = await supabase!.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.href },
+      // Always show Google's account chooser, so someone who signed out can switch accounts
+      options: {
+        redirectTo: window.location.href,
+        queryParams: { prompt: "select_account" },
+      },
     });
     if (error) {
       setError(error.message);
@@ -159,6 +169,25 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
       {error && (
         <p className="mt-4 text-sm font-semibold text-danger">{error}</p>
       )}
+      <p className="mt-5 text-center text-xs leading-relaxed text-ink-soft">
+        By continuing, you agree to Workbolt&apos;s{" "}
+        <Link
+          href="/terms"
+          onClick={onClose}
+          className="font-semibold text-ink underline underline-offset-2"
+        >
+          Terms of Service
+        </Link>{" "}
+        and{" "}
+        <Link
+          href="/privacy"
+          onClick={onClose}
+          className="font-semibold text-ink underline underline-offset-2"
+        >
+          Privacy Policy
+        </Link>
+        .
+      </p>
     </Modal>
   );
 }
